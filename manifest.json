@@ -1,0 +1,10 @@
+{
+  "name": "Soil Labels (Offline PDF)",
+  "short_name": "Soil Labels",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "theme_color": "#0b5fff",
+  "background_color": "#ffffff",
+  "icons": []
+}
