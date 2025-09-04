@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Soil Bag Labels — 30 per sheet (Offline PDF)</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0b5fff">
+
+<style>
+  :root { --blue:#0b5fff; --text:#111; --muted:#5b6570; --border:#e6e8eb; --bg:#f6f7f9; }
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,system-ui,Arial,Helvetica,sans-serif}
+  .wrap{max-width:720px;margin:0 auto;padding:16px}
+  h1{font-size:18px;margin:8px 0 12px}
+  .card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px}
+  label{display:block;font-size:12px;margin:8px 0 4px;color:#333}
+  input[type="text"],input[type="number"]{width:100%;border:1px solid #cfd6dd;border-radius:10px;padding:10px 12px;font-size:16px;background:#fff}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  button{margin-top:12px;appearance:none;border:1px solid var(--blue);background:var(--blue);color:#fff;font-weight:600;border-radius:10px;padding:12px 14px;font-size:16px;width:100%}
+  .hint{font-size:12px;color:var(--muted);margin-top:8px}
+  .status{margin-top:10px;font-size:14px;min-height:1.2em}
+  .note{margin-top:8px;font-size:13px;color:#d33;font-weight:500}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Soil Bag Labels — 30 per sheet (Offline PDF)</h1>
+  <div class="card">
+    <label>Customer Location *</label>
+    <input id="customer" type="text" required>
+
+    <label>Grower / Farm / Field *</label>
+    <input id="field" type="text" required>
+
+    <div class="row">
+      <div>
+        <label>Number of Samples *</label>
+        <input id="count" type="number" min="1" required>
+      </div>
+      <div>
+        <label>Starting Number (default 1)</label>
+        <input id="start" type="number" min="1" value="1">
+      </div>
+    </div>
+
+    <button id="goBtn">Generate PDF</button>
+    <div class="hint">Print at <b>100% / Actual Size</b> on 30-up sheets (3×10). No headers/footers.</div>
+    <div class="status" id="status">First load caches for offline use. Add to Home Screen.</div>
+    <div class="note" id="note"></div>
+  </div>
+</div>
+
+<!-- jsPDF (cached by sw.js after first load) -->
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js" crossorigin="anonymous"></script>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const statusEl = $('status'), noteEl = $('note');
+
+  // Service worker (offline)
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', async () => {
+      try {
+        await navigator.serviceWorker.register('./sw.js', {scope: './'});
+        statusEl.textContent = 'Ready ✓ (offline after Add to Home Screen)';
+      } catch (e) {
+        statusEl.textContent = 'Ready (no SW) — will need connection next time.';
+      }
+    });
+  }
+
+  // 30-up geometry (inches)
+  const LM = 0.1875;   // left margin
+  const TM = 0.50;     // top margin
+  const LABEL_W = 2.625;
+  const LABEL_H = 1.0;
+  const PITCH_X = 2.75; // left-edge spacing
+  const PITCH_Y = 1.0;  // top-edge spacing
+
+  $('goBtn').addEventListener('click', async () => {
+    const customer = ($('customer').value || '').trim();
+    const field    = ($('field').value || '').trim();
+    const count    = parseInt(($('count').value || '0'), 10);
+    let   start    = parseInt(($('start').value || '1'), 10);
+
+    if (!customer || !field || !count || count < 1) {
+      statusEl.textContent = 'Please fill Customer, Field, and Count.';
+      return;
+    }
+    if (!start || start < 1) start = 1;
+
+    try {
+      statusEl.textContent = 'Generating PDF…';
+      const url = await buildPdf(customer, field, count, start);
+      statusEl.innerHTML = 'Opening PDF… If blocked, <a href="'+url+'" target="_blank" rel="noopener">tap here</a>.';
+      const win = window.open(url, '_blank');
+      if (!win) window.location.href = url; // popup blocked → same tab
+      noteEl.textContent = 'In the print sheet, set Scale = 100% / Actual Size.';
+    } catch (e) {
+      statusEl.textContent = 'Error: ' + (e && e.message ? e.message : e);
+    }
+  });
+
+  async function buildPdf(customer, field, count, startNum){
+    // SAFARI-SAFE
+    const jsPDF = window.jspdf && window.jspdf.jsPDF;
+    if (!jsPDF) throw new Error('PDF engine not loaded yet. Try again in a moment.');
+
+    const doc = new jsPDF({ unit: 'in', format: 'letter', compress: true });
+    doc.setFont('helvetica', 'normal');
+
+    let made = 0;
+    let idx = startNum;
+
+    const pages = Math.ceil(count / 30);
+    for (let p = 0; p < pages; p++) {
+      if (p > 0) doc.addPage();
+
+      for (let r = 0; r < 10; r++) {
+        for (let c = 0; c < 3; c++) {
+          if (made >= count) break;
+
+          const left = LM + c * PITCH_X;
+          const top  = TM + r * PITCH_Y;
+          const cx   = left + LABEL_W / 2;
+
+          // --- Customer (12 pt), at y = top + 0.30 ---
+          doc.setFontSize(12);
+          doc.setFont('helvetica', 'normal');
+          doc.text(customer, cx, top + 0.30, { align: 'center', baseline: 'middle' });
+
+          // --- Field (10 pt, wrap to 2 lines), centered around y = top + 0.54 ---
+          doc.setFontSize(10);
+          const maxW = LABEL_W - 0.12;              // keep text inside label
+          const lines = doc.splitTextToSize(field, maxW);
+          const show  = lines.slice(0, 2);           // max two lines
+          const lineH = 0.12;                        // ~12 pt in inches
+          const totalH = (show.length - 1) * lineH;
+          let yCenter = top + 0.54;
+          let yStart  = yCenter - totalH / 2;
+          for (let i = 0; i < show.length; i++) {
+            doc.text(show[i], cx, yStart + i * lineH, { align: 'center', baseline: 'middle' });
+          }
+
+          // --- Big number (26 pt, bold) at y = top + 0.80 ---
+          doc.setFontSize(26);
+          doc.setFont('helvetica', 'bold');
+          doc.text(String(idx), cx, top + 0.80, { align: 'center', baseline: 'middle' });
+
+          // --- Sample ID (6 pt) at y = top + 0.99 ---
+          doc.setFontSize(6);
+          doc.setFont('helvetica', 'normal');
+          doc.text('Sample ID', cx, top + 0.99, { align: 'center', baseline: 'middle' });
+
+          made++; idx++;
+        }
+      }
+    }
+
+    const blob = doc.output('blob');
+    return URL.createObjectURL(blob);
+  }
+})();
+</script>
+</body>
+</html>
+
